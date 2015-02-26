@@ -16,13 +16,32 @@ cdir() {
 
 exitEarly() {
   local RESULT=63
-  if [ $* -gt 0 ] ; then
+  if [ "$*" -gt 0 ] ; then
     RESULT=$1
     shift
   fi
   echo $*
   exit $RESULT
 }
+
+usage() {
+  cat << EOUSAGE
+$0 -h
+$0 [ -p postgresversion ]
+EOUSAGE
+}
+
+PGVER=9.3
+
+while getopts "hp:" opt ; do
+  case $opt in
+    h) usage
+       exit 0
+       ;;
+    p) PGVER=$OPTARG
+       ;;
+  esac
+done
 
 # install git
 echo "Installing Git"
@@ -44,10 +63,10 @@ git update-index --assume-unchanged lib
 
 cdir $XTUPLE_DIR
 echo "Beginning install script"
-bash scripts/install_xtuple.sh
+bash scripts/install_xtuple.sh -d $PGVER
 
 echo "Adding Vagrant PostgreSQL Access Rule"
-echo "host all all  0.0.0.0/0 trust" | sudo tee -a /etc/postgresql/9.1/main/pg_hba.conf
+echo "host all all  0.0.0.0/0 trust" | sudo tee -a /etc/postgresql/$PGVER/main/pg_hba.conf
 
 echo "Restarting Postgres Database"
 sudo service postgresql restart
@@ -57,39 +76,30 @@ cdir /home/vagrant/dev
 sudo apt-get install -q -y libfontconfig1-dev libkrb5-dev libfreetype6-dev    \
                libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxft-dev \
                libxi-dev libxrandr-dev libxrender-dev gcc make
-sudo apt-get install -q -y --no-install-recommends ubuntu-desktop \
-               firefox firefox-gnome-support
-wget http://download.qt-project.org/official_releases/qt/4.8/4.8.6/qt-everywhere-opensource-src-4.8.6.tar.gz
-tar xvf qt-everywhere-opensource-src-4.8.6.tar.gz
-cdir qt-everywhere-opensource-src-4.8.6
-echo "Configuring Qt"
-./configure -qt-zlib -qt-libtiff -qt-libpng -qt-libmng -qt-libjpeg \
-            -plugin-sql-psql -plugin-sql-odbc -plugin-sql-sqlite   \
-            -I /usr/local/pgsql/include -L /usr/local/pgsql/lib    \
-            -lkrb5 -webkit -nomake examples -nomake demos          \
-            -confirm-license -fontconfig -opensource -continue
-echo "Building Qt 4.8.6--GO GET SOME COFFEE IT'S GOING TO BE A WHILE"
-make -j4                                || exitEarly 1 "Qt didn't build"
+sudo apt-get install -q -y --no-install-recommends \
+               ubuntu-desktop unity-lens-applications unity-lens-files \
+               gnome-panel firefox firefox-gnome-support \
+               qt4-qmake libqt4-dev libqtwebkit-dev libqt4-sql-psql qtcreator
+sudo chmod a+w /usr/lib/x86_64-linux-gnu/qt4/plugins/designer
 
-echo "Installing Qt 4.8.6--Get another cup"
-sudo make -j1 install                   || exitEarly 1 "Qt didn't install"
+echo "/home/vagrant/dev/qt-client/openrpt/lib
+/home/vagrant/dev/qt-client/lib" | sudo tee /etc/ld.so.conf.d/xtuple.conf
+sudo ldconfig
 
 echo "Compiling OPENRPT dependency"
 cdir /home/vagrant/dev/qt-client/openrpt
-/usr/local/Trolltech/Qt-4.8.6/bin/qmake || exitEarly 1 "openrpt didn't qmake"
+qmake                                   || exitEarly 1 "openrpt didn't qmake"
 make -j4                                || exitEarly 1 "openrpt didn't build"
 echo "Compiling CSVIMP dependency"
 cdir ../csvimp
-/usr/local/Trolltech/Qt-4.8.6/bin/qmake || exitEarly 1 "csvmip didn't qmake"
+qmake                                   || exitEarly 1 "csvmip didn't qmake"
 make -j4                                || exitEarly 1 "csvmip didn't build"
-
-cdir /home/vagrant
-for STARTUPFILE in .profile .bashrc ; do
-  echo '[[ "$PATH" =~ Qt-4.8.6 ]] || export PATH=/usr/local/Trolltech/Qt-4.8.6/bin:$PATH' >> $STARTUPFILE
-done
+cdir ..
+qmake                                   || exitEarly 1 "qt-client didn't qmake"
+touch widgets/addressCluster.cpp   # force build/install of libxtuplewidgets.so
+make -j4                                || exitEarly 1 "qt-client didn't build"
 
 echo "Qt development environment finished!"
-echo "To get started cd /home/vagrant/dev/qt-client qmake then make to build xTuple desktop!"
+echo "To work in the Linux desktop immediately:"
+echo "  host$ vagrant reload"
 ##end qtdev wizardry
-
-echo "The xTuple Server install script is done!"
